@@ -12,7 +12,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 url = "https://repositorio-dspace.agricultura.gov.br/handle/1/137/simple-search?query=&filter_field_1=type&filter_type_1=equals&filter_value_1=Imagem&sort_by=score&order=desc&rpp=10&etal=0&start=0"
 base_url = "https://repositorio-dspace.agricultura.gov.br"
 
-def extract_images(td, base_url, driver, pasta_destino="../data/imagens"):
+def extract_images(td, base_url, driver, pasta_destino="intel/data/imagens"):
     link_tag = td.find("a")
     if not link_tag or not link_tag.has_attr("href"):
         return
@@ -21,22 +21,19 @@ def extract_images(td, base_url, driver, pasta_destino="../data/imagens"):
     image_link = base_url + href
     print(f"\n→ Acessando item: {image_link}")
 
-    # Vai até a página do item
     driver.get(image_link)
     time.sleep(2)
 
     soup_item = BeautifulSoup(driver.page_source, "html.parser")
 
-    # Acha todos os tbodys e seleciona o segundo
     tbodys = soup_item.find_all("tbody")
     if len(tbodys) < 2:
-        print("⚠️ Segundo <tbody> não encontrado.")
+        print(" Segundo <tbody> não encontrado.")
         return
 
     tbody = tbodys[1]
     tr_com_link = None
 
-    # Procura o <tr> que contém uma tag <a>
     for tr in tbody.find_all("tr"):
         a_tag = tr.find("a")
         if a_tag and a_tag.has_attr("href"):
@@ -44,13 +41,12 @@ def extract_images(td, base_url, driver, pasta_destino="../data/imagens"):
             break
 
     if not tr_com_link:
-        print("⚠️ Nenhum link encontrado no segundo <tbody>.")
+        print(" Nenhum link encontrado no segundo <tbody>.")
         return
 
     download_page = base_url + tr_com_link
     print(f"  ↳ Indo para página de download: {download_page}")
 
-    # Abre a página de download
     driver.get(download_page)
     time.sleep(2)
 
@@ -58,7 +54,7 @@ def extract_images(td, base_url, driver, pasta_destino="../data/imagens"):
     img_tag = soup_download.find("img")
 
     if not img_tag or not img_tag.has_attr("src"):
-        print("⚠️ Nenhuma imagem encontrada nesta página.")
+        print(" Nenhuma imagem encontrada nesta página.")
         return
 
     img_src = img_tag["src"]
@@ -67,16 +63,15 @@ def extract_images(td, base_url, driver, pasta_destino="../data/imagens"):
 
     print(f"  ↓ Baixando imagem de: {img_src}")
 
-    # Faz o download da imagem
     response = requests.get(img_src)
     if response.status_code == 200:
         filename = os.path.basename(img_src.split("?")[0])
         caminho = os.path.join(pasta_destino, filename)
         with open(caminho, "wb") as f:
             f.write(response.content)
-        print(f"  ✅ Imagem salva em: {caminho}")
+        print(f"   Imagem salva em: {caminho}")
     else:
-        print("❌ Falha ao baixar imagem.")
+        print("Falha ao baixar imagem.")
 
 def detect_next(soup):
     """
@@ -94,44 +89,37 @@ def detect_next(soup):
     last_li = li_list[-1]
     a_tag = last_li.find("a")
     if a_tag and "href" in a_tag.attrs:
-        # Se o último botão não for "disabled", retorna o link
         if "disabled" not in last_li.get("class", []):
             return a_tag["href"]
     return None
 
 
-# Inicializa o Selenium
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
 while True:
     driver.get(url)
-    time.sleep(3)  # espera o JavaScript carregar
+    time.sleep(3)  
 
-    # Passa o HTML renderizado para o BeautifulSoup
     soup = BeautifulSoup(driver.page_source, "html.parser")
 
-    # Encontra o <tbody>
     tbody = soup.select_one("table tbody")
     if not tbody:
-        print("⚠️ Nenhum <tbody> encontrado nesta página.")
+        print(" Nenhum <tbody> encontrado nesta página.")
         break
 
-    # Itera pelas linhas da tabela
     for tr in tbody.find_all("tr"):
         td = tr.find("td")
         if td:
             extract_images(td, base_url, driver)
 
-    # Detecta próxima página
     next_url = detect_next(soup)
     if next_url:
-        # O link pode ser relativo, então completamos
         if not next_url.startswith("http"):
             next_url = base_url + next_url
-        print(f"\n➡️ Indo para a próxima página: {next_url}\n")
+        print(f"\n Indo para a próxima página: {next_url}\n")
         url = next_url
     else:
-        print("\n✅ Nenhuma próxima página encontrada. Fim da raspagem.")
+        print("\n Nenhuma próxima página encontrada. Fim da raspagem.")
         break
 
 driver.quit()
