@@ -1,4 +1,5 @@
 # Ambientes virtuais
 /venv/
 resultado_debug.jpg
+.venv
 .env
