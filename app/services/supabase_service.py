@@ -14,7 +14,7 @@ BUCKET_NAME = "classification-images"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-async def download_image_from_bucket(image_path: str):
+def download_image(image_path: str):
     file_name = image_path.split("/")[-1]
 
     try:
@@ -24,39 +24,42 @@ async def download_image_from_bucket(image_path: str):
 
         file_bytes = np.asarray(bytearray(response), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        
         return image
     except Exception as e:
-        print(f"Error downloading image: {e}")
         return None
 
 
-async def fetch_pending_classifications():
+def fetch_pending_classification():
     try:
         response = (
             supabase.table("classifications")
-            .select("*")
+            .select("id, image_path")
             .eq("has_classificated", False)
+            .limit(1)
             .execute()
-        )
-        data = response.data or []
+        ).data
 
-        results = []
-        for item in data:
-            image_path = item.get("image_path")
-            if not image_path:
-                continue
+        if response == None:
+            return None
+        
+        data = response[0]
+        image = download_image(data['image_path'])
 
-            image = await download_image_from_bucket(image_path)
-            if image is None:
-                print(f"Unable to download {image_path}")
-                continue
+        if image is None:
 
-            results.append(
-                {"id": item.get("id"), "image_path": image_path, "image": image}
-            )
+            return None
 
-        return results
+        return data | {'image': image}
 
     except Exception as e:
-        print(f"Error fetching classifications: {e}")
-        return []
+        return None
+
+
+def update_classification(id: str, analysis: dict) -> None:
+    try:
+        supabase.table("classifications").update(
+            {"has_classificated": True, "result": analysis}
+        ).eq("id", id).execute()
+    except Exception:
+        pass
