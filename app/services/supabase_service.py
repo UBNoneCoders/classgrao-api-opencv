@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import os
 from dotenv import load_dotenv
+import uuid
 
 
 load_dotenv()
@@ -55,11 +56,45 @@ def fetch_pending_classification():
     except Exception as e:
         return None
 
-
-def update_classification(id: str, analysis: dict) -> None:
+def update_classification(id: str, analysis: dict, result_image=None) -> None:
     try:
-        supabase.table("classifications").update(
-            {"has_classificated": True, "result": analysis}
-        ).eq("id", id).execute()
-    except Exception:
-        pass
+        result_image_path = None
+
+        if result_image is not None:
+            result_image_path = upload_result_image(result_image)
+
+        data = {
+            "has_classificated": True,
+            "result": analysis
+        }
+
+        if result_image_path is not None:
+            data["result_image_path"] = result_image_path
+
+        supabase.table("classifications").update(data).eq("id", id).execute()
+
+    except Exception as e:
+        print("Erro ao atualizar:", e)
+
+def upload_result_image(image):
+    try:
+        filename = f"{uuid.uuid4()}.jpg"
+        storage_path = f"classification-images/{filename}"
+
+        success, encoded_image = cv2.imencode(".jpg", image)
+        if not success:
+            return None
+
+        file_bytes = encoded_image.tobytes()
+
+        supabase.storage.from_("classification-images").upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": "image/jpeg"}
+        )
+
+        return storage_path
+    
+    except Exception as e:
+        print("Erro upload:", e)
+        return None
