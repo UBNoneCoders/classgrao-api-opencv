@@ -1,5 +1,8 @@
 import cv2
 import numpy as np
+import polars as pl
+from app.services.supabase_service import upload_result_image
+
 
 def read_image(file):
     contents = file.read()
@@ -9,51 +12,87 @@ def read_image(file):
 
 
 def analysis_image(file):
-    # image = read_image(file)
-    image = cv2.resize(file , (800, 800))
-    
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    img = cv2.resize(file, (960, 1280))
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (21, 21), 0)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    if np.mean(thresh) > 127:
-        thresh = cv2.bitwise_not(thresh)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+    eroded = cv2.erode(thresh, kernel, iterations=1)
 
-    kernel = np.ones((3, 3), np.uint8)
-    clean = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
-    contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    dist_transform = cv2.distanceTransform(thresh, cv2.DIST_L2, 3)
+    dist_norm = cv2.normalize(dist_transform, None, 0, 1.0, cv2.NORM_MINMAX)
 
-    areas = []
-    circularities = []
-    impurities = []
+    sure_bg = cv2.dilate(eroded, kernel, iterations=3)
+    _, sure_fg = cv2.threshold(dist_norm, 0.5 * dist_norm.max(), 255, 0)
+    sure_fg = np.uint8(sure_fg)
 
-    for contour in contours:
+    unknown = cv2.subtract(sure_bg, sure_fg)
+    _, markers = cv2.connectedComponents(sure_fg)
+
+    min_seed_area = 100
+    max_seed_area = 350
+    min_color = (221, 184, 2)
+    max_color = (254, 251, 141)
+
+    results = []
+    img_marked = img.copy()
+    for marker_id in range(2, markers.max() + 1):
+        mask = np.uint8(markers == marker_id)
+        
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contour = contours[0]
+        
         area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, True)
-        if perimeter == 0 or area < 20:
+        perimetro = cv2.arcLength(contour, True)
+        if perimetro != 0:
+            circularity = 4 * np.pi * (area / (perimetro ** 2))
+        else:
+            circularity = 0
+        
+        M = cv2.moments(contour)
+        if M["m00"] == 0:
             continue
 
-        circularity = 4 * np.pi * (area / (perimeter**2))
-        areas.append(area)
-        circularities.append(circularity)
+        cX = int(M["m10"] / M["m00"])
+        cY = int(M["m01"] / M["m00"])
 
-        if area < 300 or circularity < 0.6:
-            impurities.append(contour)
+        color = cv2.mean(img, mask=mask)[:3]
+        color = tuple([int(color) for color in color][::-1])
 
-    total_count = len(contours)
-    impurities_count = len(impurities)
-    impurities_percentage = (
-        (impurities_count / total_count * 100) if total_count > 0 else 0
-    )
-    average_color = cv2.mean(image)[:3]
+        status = 'good'
 
+        if min_seed_area > area or area > max_seed_area:
+            status = 'bad'
+        if min_color > color or color > max_color:
+            status = 'bad'
+        
+
+        if status == 'good':
+            cv2.circle(img_marked, (cX, cY), 5, (255, 0, 0), -1)
+        else:
+            cv2.circle(img_marked, (cX, cY), 5, (0, 0, 255), -1)
+        
+        cv2.putText(img_marked, str(marker_id - 1), (cX + 10, cY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+
+        results.append({
+            'area': area,
+            'circularity': circularity,
+            'color': color,
+            'status': status,
+        })
+
+    result_image_path = upload_result_image(img_marked)
+    df = pl.DataFrame(results)
     result = {
-        "total_grains": total_count,
-        "total_impurities": impurities_count,
-        "impurities_percentage": round(impurities_percentage, 2),
-        "average_area": round(np.mean(areas), 2) if areas else 0,
-        "average_circularity": round(np.mean(circularities), 3) if circularities else 0,
-        "average_color_bgr": [round(c, 2) for c in average_color],
+        "total_grains": len(df),
+        "good_grains": len(df.filter(pl.col('status') == 'good')),
+        "bad_grains": len(df.filter(pl.col('status') == 'bad')),
+        "good_grains_percentage": round(len(df.filter(pl.col('status') == 'good')) / len(df) * 100, 2),
+        "average_area": round(df['area'].mean(), 2),
+        "average_circularity": round(df['circularity'].mean(), 2),
+        "average_color": (int(df['color'].list.get(0).mean()), int(df['color'].list.get(1).mean()), int(df['color'].list.get(2).mean())),
     }
 
-    return result
+    return result_image_path, result

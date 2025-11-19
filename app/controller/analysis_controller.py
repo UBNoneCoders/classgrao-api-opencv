@@ -9,7 +9,7 @@ def analysis():
         if classification == None:
             break
 
-        analysis = analysis_image(classification["image"])
-        update_classification(classification['id'], analysis)
+        result_image_path, analysis = analysis_image(classification["image"])
+        update_classification(classification['id'], analysis, result_image_path)
     
     set_running(False)

@@ -56,20 +56,13 @@ def fetch_pending_classification():
     except Exception as e:
         return None
 
-def update_classification(id: str, analysis: dict, result_image=None) -> None:
+def update_classification(id: str, analysis: dict, result_image_path=None) -> None:
     try:
-        result_image_path = None
-
-        if result_image is not None:
-            result_image_path = upload_result_image(result_image)
-
         data = {
             "has_classificated": True,
-            "result": analysis
+            "result": analysis,
+            'result_image_path': result_image_path ,
         }
-
-        if result_image_path is not None:
-            data["result_image_path"] = result_image_path
 
         supabase.table("classifications").update(data).eq("id", id).execute()
 
