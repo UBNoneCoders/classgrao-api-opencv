@@ -3,3 +3,4 @@
 resultado_debug.jpg
 .venv
 .env
+__pycache__/

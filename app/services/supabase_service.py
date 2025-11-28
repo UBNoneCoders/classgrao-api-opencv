@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import os
 from dotenv import load_dotenv
+import uuid
 
 
 load_dotenv()
@@ -14,7 +15,7 @@ BUCKET_NAME = "classification-images"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-async def download_image_from_bucket(image_path: str):
+def download_image(image_path: str):
     file_name = image_path.split("/")[-1]
 
     try:
@@ -24,39 +25,69 @@ async def download_image_from_bucket(image_path: str):
 
         file_bytes = np.asarray(bytearray(response), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        
         return image
     except Exception as e:
-        print(f"Error downloading image: {e}")
         return None
 
 
-async def fetch_pending_classifications():
+def fetch_pending_classification():
     try:
         response = (
             supabase.table("classifications")
-            .select("*")
+            .select("id, image_path")
             .eq("has_classificated", False)
+            .limit(1)
             .execute()
-        )
-        data = response.data or []
+        ).data
 
-        results = []
-        for item in data:
-            image_path = item.get("image_path")
-            if not image_path:
-                continue
+        if response == None:
+            return None
+        
+        data = response[0]
+        image = download_image(data['image_path'])
 
-            image = await download_image_from_bucket(image_path)
-            if image is None:
-                print(f"Unable to download {image_path}")
-                continue
+        if image is None:
 
-            results.append(
-                {"id": item.get("id"), "image_path": image_path, "image": image}
-            )
+            return None
 
-        return results
+        return data | {'image': image}
 
     except Exception as e:
-        print(f"Error fetching classifications: {e}")
-        return []
+        return None
+
+def update_classification(id: str, analysis: dict, result_image_path=None) -> None:
+    try:
+        data = {
+            "has_classificated": True,
+            "result": analysis,
+            'result_image_path': result_image_path ,
+        }
+
+        supabase.table("classifications").update(data).eq("id", id).execute()
+
+    except Exception as e:
+        print("Erro ao atualizar:", e)
+
+def upload_result_image(image):
+    try:
+        filename = f"{uuid.uuid4()}.jpg"
+        storage_path = f"classification-images/{filename}"
+
+        success, encoded_image = cv2.imencode(".jpg", image)
+        if not success:
+            return None
+
+        file_bytes = encoded_image.tobytes()
+
+        supabase.storage.from_("classification-images").upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": "image/jpeg"}
+        )
+
+        return storage_path
+    
+    except Exception as e:
+        print("Erro upload:", e)
+        return None

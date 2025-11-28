@@ -1,9 +1,9 @@
 from fastapi import FastAPI
-from app.routers.routes_classification import router as classroutes_classification_router
+from app.routers.analysis_route import router
 
 app = FastAPI(title="API de Classificação de Grãos", version="1.0")
 
-app.include_router(classroutes_classification_router)
+app.include_router(router)
 
 @app.get("/")
 def root():
